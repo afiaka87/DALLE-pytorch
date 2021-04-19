@@ -75,8 +75,8 @@ GRAD_CLIP_NORM = 0.5
 
 MODEL_DIM = 512
 TEXT_SEQ_LEN = 256
-DEPTH = 2
-HEADS = 4
+DEPTH = 16
+HEADS = 16
 DIM_HEAD = 64
 REVERSIBLE = True
 LOSS_IMG_WEIGHT = 7
@@ -289,9 +289,10 @@ if distr_backend.is_root_worker():
         heads = HEADS,
         dim_head = DIM_HEAD
     )
+    wandb.init()
 
     run = wandb.init(
-        project = 'dalle_train_transformer',
+        project = "cc12m_transfer_previews",
         resume = RESUME,
         config = model_config,
     )
