@@ -69,15 +69,15 @@ DALLE_PATH = args.dalle_path
 RESUME = exists(DALLE_PATH)
 
 EPOCHS = 20
-BATCH_SIZE = 8
-LEARNING_RATE = 3e-4
-GRAD_CLIP_NORM = 0.5
+BATCH_SIZE = 4
+LEARNING_RATE = 3.78198e-4
+GRAD_CLIP_NORM = 1.0
 
-MODEL_DIM = 512
-TEXT_SEQ_LEN = 256
-DEPTH = 16
+MODEL_DIM = 256
+TEXT_SEQ_LEN = 128
+DEPTH = 4
 HEADS = 4
-DIM_HEAD = 64
+DIM_HEAD = 32
 REVERSIBLE = True
 LOSS_IMG_WEIGHT = 7
 LR_DECAY = False
@@ -148,7 +148,7 @@ else:
         dim_head=DIM_HEAD,
         reversible=REVERSIBLE,
         loss_img_weight=LOSS_IMG_WEIGHT,
-        attn_types=('conv_like')
+        attn_types=('full', 'sparse')
     )
 
 # configure OpenAI VAE for float16s
@@ -319,9 +319,7 @@ for epoch in range(EPOCHS):
                 token_list = sample_text.masked_select(sample_text != 0).tolist()
                 decoded_text = tokenizer.decode(token_list)
 
-                if not avoid_model_calls:
-                    # CUDA index errors when we don't guard this
-                    image = dalle.generate_images(text[:1], filter_thres=0.9)  # topk sampling at 0.9
+                image = dalle.generate_images(text[:1], filter_thres=0.9)  # topk sampling at 0.9
 
                 save_model(f'./dalle.pt')
                 wandb.save(f'./dalle.pt')
@@ -329,8 +327,7 @@ for epoch in range(EPOCHS):
                 log = {
                     **log,
                 }
-                if not avoid_model_calls:
-                    log['image'] = wandb.Image(image, caption=decoded_text)
+                log['image'] = wandb.Image(image, caption=decoded_text)
 
             wandb.log(log)
 
