@@ -1,7 +1,7 @@
 #!/bin/bash
 # train_dalle.sh
-#
-#
+
+
 NUM_GPUS=1
 DATASET=$HOME/Datasets
 CHECKPOINT=dalle.pt

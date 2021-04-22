@@ -69,13 +69,13 @@ DALLE_PATH = args.dalle_path
 RESUME = exists(DALLE_PATH)
 
 EPOCHS = 20
-BATCH_SIZE = 8
+BATCH_SIZE = 2
 LEARNING_RATE = 3e-4
 GRAD_CLIP_NORM = 0.5
 
 MODEL_DIM = 512
 TEXT_SEQ_LEN = 256
-DEPTH = 16
+DEPTH = 4
 HEADS = 4
 DIM_HEAD = 64
 REVERSIBLE = True
@@ -148,7 +148,7 @@ else:
         dim_head=DIM_HEAD,
         reversible=REVERSIBLE,
         loss_img_weight=LOSS_IMG_WEIGHT,
-        attn_types=('conv_like')
+        attn_types=('full')
     )
 
 # configure OpenAI VAE for float16s
