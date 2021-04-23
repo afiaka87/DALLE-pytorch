@@ -21,30 +21,39 @@ group = parser.add_mutually_exclusive_group(required=False)
 group.add_argument('--vae_path', type=str, help='path to your trained discrete VAE') 
 group.add_argument('--dalle_path', type=str, help='path to your partially trained DALL-E')
 
-parser.add_argument('--image_text_folder', type=str, required=True, help='path to your folder of images and text for learning the DALL-E') 
+parser.add_argument('--image_text_folder', type=str, help='path to your folder of images and text for learning the DALL-E') 
 
-parser.add_argument('--truncate_captions', dest='truncate_captions', action='store_true', help='Captions passed in which exceed the max token length will be truncated if this is set.') 
 parser.add_argument('--random_resize_crop_lower_ratio', dest='resize_ratio', type=float, default=0.85, help='Random resized crop lower ratio') 
 parser.add_argument('--lr', dest='lr', type=float, default=3.782e-4, help='Learning rate.') 
-parser.add_argument('--gc_norm', dest='gc_norm', type=float, default=0.5, help='normalize with this value after clipping gradients.') 
+parser.add_argument('--gc_norm', dest='gc_norm', type=float, default=1.0, help='normalize with this value after clipping gradients.') 
 
 parser.add_argument('--chinese', dest='chinese', action='store_true') 
-parser.add_argument('--taming', dest='taming', action='store_true') 
-parser.add_argument('--reversible', dest='reversible', action='store_true') 
+
+#parser.add_argument('--taming', dest='taming', action='store_true') 
+
+#parser.add_argument('--reversible', dest='reversible', action='store_true') 
+
 parser.add_argument('--hug', dest='hug', action='store_true') 
+
 parser.add_argument('--bpe_path', type=str, help='path to your huggingface BPE json file') 
+
 parser.add_argument('--fp16', action='store_true', help='(experimental) - Enable DeepSpeed 16 bit precision. Reduces VRAM.') 
-parser.add_argument('--batch_size', dest='batch_size', type=int, default=4, help='Number of image-text pairs to be trained on at once.')
-parser.add_argument('--model_dim', dest='model_dim', type=int, default=512, help='Model diminsions.')
-parser.add_argument('--text_seq_len', dest='text_seq_len', type=int, default=256, help='Max text sequence length in tokenizer.' )
+
+parser.add_argument('--batch_size', dest='batch_size', type=int, default=32, help='Number of image-text pairs to be trained on at once.')
+
+parser.add_argument('--model_dim', dest='model_dim', type=int, default=128, help='Model diminsions.')
+parser.add_argument('--text_seq_len', dest='text_seq_len', type=int, default=64, help='Max text sequence length in tokenizer.' )
 parser.add_argument('--dim_head', dest='dim_head', type=int, default=64, help='Dimension of the attention heads.')
 
-parser.add_argument('--wandb_name', default='dalle_train_transformer', help='Name W&B will use when saving results. e.g. `--wandb_name "coco2017-full-sparse"`')
+parser.add_argument('--wandb_name', default='params', help='Name W&B will use when saving results. e.g. `--wandb_name "coco2017-full-sparse"`')
 parser.add_argument('--attn_dropout', dest='attn_dropout', type=float, default=0.1, help='Attention dropout')
 parser.add_argument('--ff_dropout', dest='ff_dropout', type=float, default=0.1,help='Feedforward dropout.')
 parser = distributed_utils.wrap_arg_parser(parser)
 args = parser.parse_args()
+args.taming = True
 
+
+args.image_text_folder = "/workspace/Datasets/Dropbox/COCO/"
 # quit early if you used the wrong folder name
 assert Path(args.image_text_folder).exists(), f'The path {args.image_text_folder} was not found.'
 
@@ -66,20 +75,33 @@ VAE_PATH = args.vae_path
 DALLE_PATH = args.dalle_path
 RESUME = exists(DALLE_PATH)
 
-EPOCHS = 2
+EPOCHS = 1
 LEARNING_RATE = args.lr
 GRAD_CLIP_NORM = args.gc_norm
 
 MODEL_DIM = args.model_dim  # 512
 TEXT_SEQ_LEN = args.text_seq_len # 256 
-DEPTH = 16
-HEADS = 16
+DEPTH = 8
+HEADS = 8
 DIM_HEAD = args.dim_head  # 64
-REVERSIBLE = args.reversible  # True
+REVERSIBLE = False #args.reversible  # True
 LOSS_IMG_WEIGHT = 7
 LR_DECAY = False
 ATTN_TYPES=('full', 'axial_row', 'axial_col', 'conv_like'),
 
+#EPOCHS = 20
+#BATCH_SIZE = args.batch_size
+#LEARNING_RATE = 3.7819e-4
+#GRAD_CLIP_NORM = 1.0
+#
+#MODEL_DIM = 256
+#TEXT_SEQ_LEN = 128
+#DEPTH = 16
+#HEADS = 16
+#DIM_HEAD = 64
+#REVERSIBLE = True
+#LOSS_IMG_WEIGHT = 7
+#LR_DECAY = False
 # initialize distributed backend
 
 distr_backend = distributed_utils.set_backend_from_args(args)
@@ -146,7 +168,7 @@ else:
         dim_head=DIM_HEAD,
         reversible=REVERSIBLE,
         loss_img_weight=LOSS_IMG_WEIGHT,
-        attn_types=ATTN_TYPES,
+        attn_types=('full', 'axial_row', 'axial_col', 'conv_like'),
         attn_dropout = ATTN_DROPOUT,         # attention dropout
         ff_dropout = FF_DROPOUT,           # feedforward dropout
     )
@@ -188,14 +210,14 @@ def group_weight(model):
 
 # create dataset and dataloader
 
-is_shuffle = True  #not distributed_utils.using_backend(distributed_utils.HorovodBackend)
+is_shuffle = True #not distributed_utils.using_backend(distributed_utils.HorovodBackend)
 
 ds = TextImageDataset(
     args.image_text_folder,
     text_len=TEXT_SEQ_LEN,
     image_size=IMAGE_SIZE,
     resize_ratio=args.resize_ratio,
-    truncate_captions=args.truncate_captions,
+    truncate_captions=True,# args.truncate_captions,
     tokenizer=tokenizer,
     shuffle=is_shuffle,
 )
@@ -243,19 +265,6 @@ if LR_DECAY:
     )
 
 
-EPOCHS = 20
-BATCH_SIZE = args.batch_size
-LEARNING_RATE = 3.782e-4
-GRAD_CLIP_NORM = 1.0
-
-MODEL_DIM = 256
-TEXT_SEQ_LEN = 128
-DEPTH = 16
-HEADS = 16
-DIM_HEAD = 64
-REVERSIBLE = True
-LOSS_IMG_WEIGHT = 7
-LR_DECAY = False
 if distr_backend.is_root_worker():
     # experiment tracker
 
@@ -284,7 +293,7 @@ deepspeed_config = {
     'train_batch_size': BATCH_SIZE,
     'gradient_clipping': GRAD_CLIP_NORM,
     #'fp16': { 'enabled': False },
-    "amp": { "enabled": True, "opt_level": "O1", }
+#    "amp": { "enabled": True, "opt_level": "O1", }
 }
 
 (distr_dalle, distr_opt, distr_dl, distr_scheduler) = distr_backend.distribute(
@@ -336,11 +345,8 @@ for epoch in range(EPOCHS):
 
             if i % 100 == 0:
                 save_model(f'./dalle.pt')
-
-            if i % 5000 == 0:
                 wandb.save(f'./dalle.pt')
 
-            if i % 25 == 0:
                 sample_text = text[:1]
                 token_list = sample_text.masked_select(sample_text != 0).tolist()
                 decoded_text = tokenizer.decode(token_list)
@@ -349,11 +355,11 @@ for epoch in range(EPOCHS):
                     # CUDA index errors when we don't guard this
                     image = dalle.generate_images(text[:1], filter_thres=0.9)  # topk sampling at 0.9 
 
+                if not avoid_model_calls:
+                    log['image'] = wandb.Image(image, caption=decoded_text)
                 log = {
                     **log,
                 }
-                if not avoid_model_calls:
-                    log['image'] = wandb.Image(image, caption=decoded_text)
 
             wandb.log(log)
 
