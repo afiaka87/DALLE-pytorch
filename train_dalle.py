@@ -31,8 +31,10 @@ parser.add_argument('--image_text_folder', type=str, required=True,
 parser.add_argument('--truncate_captions', dest='truncate_captions', action='store_true',
                     help='Captions passed in which exceed the max token length will be truncated if this is set.')
 
-parser.add_argument('--random_resize_crop_lower_ratio', dest='resize_ratio', type=float, default=0.75,
+parser.add_argument('--random_resize_crop_lower_ratio', dest='resize_ratio', type=float, default=0.85,
                     help='Random resized crop lower ratio')
+
+parser.add_argument('--batch_size', dest='batch_size', type=int, default=32, help='Batch size')
 
 parser.add_argument('--chinese', dest='chinese', action='store_true')
 
@@ -68,18 +70,19 @@ DALLE_PATH = args.dalle_path
 RESUME = exists(DALLE_PATH)
 
 EPOCHS = 20
-BATCH_SIZE = 4
-LEARNING_RATE = 3e-4
-GRAD_CLIP_NORM = 0.5
+BATCH_SIZE = args.batch_size
+LEARNING_RATE = 3.782e-4
+GRAD_CLIP_NORM = 1.0
 
-MODEL_DIM = 512
-TEXT_SEQ_LEN = 256
-DEPTH = 2
-HEADS = 4
+MODEL_DIM = 256
+TEXT_SEQ_LEN = 128
+DEPTH = 16
+HEADS = 16
 DIM_HEAD = 64
 REVERSIBLE = True
 LOSS_IMG_WEIGHT = 7
 LR_DECAY = False
+ATTN_TYPES=('full', 'axial_row', 'axial_col', 'conv_like'),
 
 # initialize distributed backend
 
@@ -146,7 +149,8 @@ else:
         heads=HEADS,
         dim_head=DIM_HEAD,
         reversible=REVERSIBLE,
-        loss_img_weight=LOSS_IMG_WEIGHT
+        loss_img_weight=LOSS_IMG_WEIGHT,
+        attn_types=ATTN_TYPES,
     )
 
 # configure OpenAI VAE for float16s
@@ -186,7 +190,7 @@ def group_weight(model):
 
 # create dataset and dataloader
 
-is_shuffle = not distributed_utils.using_backend(distributed_utils.HorovodBackend)
+is_shuffle = True  #not distributed_utils.using_backend(distributed_utils.HorovodBackend)
 
 ds = TextImageDataset(
     args.image_text_folder,
@@ -240,13 +244,33 @@ if LR_DECAY:
         verbose=True,
     )
 
+
+EPOCHS = 20
+BATCH_SIZE = args.batch_size
+LEARNING_RATE = 3.782e-4
+GRAD_CLIP_NORM = 1.0
+
+MODEL_DIM = 256
+TEXT_SEQ_LEN = 128
+DEPTH = 16
+HEADS = 16
+DIM_HEAD = 64
+REVERSIBLE = True
+LOSS_IMG_WEIGHT = 7
+LR_DECAY = False
 if distr_backend.is_root_worker():
     # experiment tracker
 
     model_config = dict(
+        batch_size=BATCH_SIZE,
+        learning_rate=LEARNING_RATE,
+        model_dim=MODEL_DIM,
+        text_seq_len=TEXT_SEQ_LEN,
         depth=DEPTH,
         heads=HEADS,
-        dim_head=DIM_HEAD
+        dim_head=DIM_HEAD,
+        reversible=REVERSIBLE,
+        attn_types=ATTN_TYPES,
     )
 
     run = wandb.init(
@@ -261,9 +285,8 @@ distr_backend.check_batch_size(BATCH_SIZE)
 deepspeed_config = {
     'train_batch_size': BATCH_SIZE,
     'gradient_clipping': GRAD_CLIP_NORM,
-    'fp16': {
-        'enabled': args.fp16,
-    },
+    #'fp16': { 'enabled': False },
+    "amp": { "enabled": True, "opt_level": "O1", }
 }
 
 (distr_dalle, distr_opt, distr_dl, distr_scheduler) = distr_backend.distribute(
@@ -314,16 +337,19 @@ for epoch in range(EPOCHS):
                 }
 
             if i % 100 == 0:
+                save_model(f'./dalle.pt')
+
+            if i % 5000 == 0:
+                wandb.save(f'./dalle.pt')
+
+            if i % 25 == 0:
                 sample_text = text[:1]
                 token_list = sample_text.masked_select(sample_text != 0).tolist()
                 decoded_text = tokenizer.decode(token_list)
 
                 if not avoid_model_calls:
                     # CUDA index errors when we don't guard this
-                    image = dalle.generate_images(text[:1], filter_thres=0.9)  # topk sampling at 0.9
-
-                save_model(f'./dalle.pt')
-                wandb.save(f'./dalle.pt')
+                    image = dalle.generate_images(text[:1], filter_thres=0.9)  # topk sampling at 0.9 
 
                 log = {
                     **log,
@@ -337,13 +363,6 @@ for epoch in range(EPOCHS):
         # Scheduler is automatically progressed after the step when
         # using DeepSpeed.
         distr_scheduler.step(loss)
-
-    if distr_backend.is_root_worker():
-        # save trained model to wandb as an artifact every epoch's end
-
-        model_artifact = wandb.Artifact('trained-dalle', type='model', metadata=dict(model_config))
-        model_artifact.add_file('dalle.pt')
-        run.log_artifact(model_artifact)
 
 if distr_backend.is_root_worker():
     save_model(f'./dalle-final.pt')
