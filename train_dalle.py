@@ -17,39 +17,31 @@ from dalle_pytorch.tokenizer import tokenizer, HugTokenizer, ChineseTokenizer, Y
 
 parser = argparse.ArgumentParser()
 
-group = parser.add_mutually_exclusive_group(required=False)
+group = parser.add_mutually_exclusive_group(required=False) 
+group.add_argument('--vae_path', type=str, help='path to your trained discrete VAE') 
+group.add_argument('--dalle_path', type=str, help='path to your partially trained DALL-E')
 
-group.add_argument('--vae_path', type=str,
-                   help='path to your trained discrete VAE')
+parser.add_argument('--image_text_folder', type=str, required=True, help='path to your folder of images and text for learning the DALL-E') 
 
-group.add_argument('--dalle_path', type=str,
-                   help='path to your partially trained DALL-E')
+parser.add_argument('--truncate_captions', dest='truncate_captions', action='store_true', help='Captions passed in which exceed the max token length will be truncated if this is set.') 
+parser.add_argument('--random_resize_crop_lower_ratio', dest='resize_ratio', type=float, default=0.85, help='Random resized crop lower ratio') 
+parser.add_argument('--lr', dest='lr', type=float, default=3.782e-4, help='Learning rate.') 
+parser.add_argument('--gc_norm', dest='gc_norm', type=float, default=0.5, help='normalize with this value after clipping gradients.') 
 
-parser.add_argument('--image_text_folder', type=str, required=True,
-                    help='path to your folder of images and text for learning the DALL-E')
+parser.add_argument('--chinese', dest='chinese', action='store_true') 
+parser.add_argument('--taming', dest='taming', action='store_true') 
+parser.add_argument('--reversible', dest='reversible', action='store_true') 
+parser.add_argument('--hug', dest='hug', action='store_true') 
+parser.add_argument('--bpe_path', type=str, help='path to your huggingface BPE json file') 
+parser.add_argument('--fp16', action='store_true', help='(experimental) - Enable DeepSpeed 16 bit precision. Reduces VRAM.') 
+parser.add_argument('--batch_size', dest='batch_size', type=int, default=4, help='Number of image-text pairs to be trained on at once.')
+parser.add_argument('--model_dim', dest='model_dim', type=int, default=512, help='Model diminsions.')
+parser.add_argument('--text_seq_len', dest='text_seq_len', type=int, default=256, help='Max text sequence length in tokenizer.' )
+parser.add_argument('--dim_head', dest='dim_head', type=int, default=64, help='Dimension of the attention heads.')
 
-parser.add_argument('--truncate_captions', dest='truncate_captions', action='store_true',
-                    help='Captions passed in which exceed the max token length will be truncated if this is set.')
-
-parser.add_argument('--random_resize_crop_lower_ratio', dest='resize_ratio', type=float, default=0.85,
-                    help='Random resized crop lower ratio')
-
-parser.add_argument('--batch_size', dest='batch_size', type=int, default=32, help='Batch size')
-
-parser.add_argument('--chinese', dest='chinese', action='store_true')
-
-parser.add_argument('--taming', dest='taming', action='store_true')
-
-parser.add_argument('--hug', dest='hug', action='store_true')
-
-parser.add_argument('--bpe_path', type=str,
-                    help='path to your huggingface BPE json file')
-
-parser.add_argument('--fp16', action='store_true',
-                    help='(experimental) - Enable DeepSpeed 16 bit precision. Reduces VRAM.')
-
-parser.add_argument('--wandb_name', default='dalle_train_transformer',
-                    help='Name W&B will use when saving results.\ne.g. `--wandb_name "coco2017-full-sparse"`')
+parser.add_argument('--wandb_name', default='dalle_train_transformer', help='Name W&B will use when saving results. e.g. `--wandb_name "coco2017-full-sparse"`')
+parser.add_argument('--attn_dropout', dest='attn_dropout', type=float, default=0.1, help='Attention dropout')
+parser.add_argument('--ff_dropout', dest='ff_dropout', type=float, default=0.1,help='Feedforward dropout.')
 parser = distributed_utils.wrap_arg_parser(parser)
 args = parser.parse_args()
 
@@ -65,21 +57,25 @@ def exists(val):
 
 # constants
 
+ATTN_DROPOUT = args.attn_dropout
+FF_DROPOUT = args.ff_dropout
+
+BATCH_SIZE = args.batch_size
+
 VAE_PATH = args.vae_path
 DALLE_PATH = args.dalle_path
 RESUME = exists(DALLE_PATH)
 
-EPOCHS = 20
-BATCH_SIZE = args.batch_size
-LEARNING_RATE = 3.782e-4
-GRAD_CLIP_NORM = 1.0
+EPOCHS = 10
+LEARNING_RATE = args.lr
+GRAD_CLIP_NORM = args.gc_norm
 
-MODEL_DIM = 256
-TEXT_SEQ_LEN = 128
+MODEL_DIM = args.model_dim  # 512
+TEXT_SEQ_LEN = args.text_seq_len # 256 
 DEPTH = 16
 HEADS = 16
-DIM_HEAD = 64
-REVERSIBLE = True
+DIM_HEAD = args.dim_head  # 64
+REVERSIBLE = args.reversible  # True
 LOSS_IMG_WEIGHT = 7
 LR_DECAY = False
 ATTN_TYPES=('full', 'axial_row', 'axial_col', 'conv_like'),
@@ -151,6 +147,8 @@ else:
         reversible=REVERSIBLE,
         loss_img_weight=LOSS_IMG_WEIGHT,
         attn_types=ATTN_TYPES,
+        attn_dropout = ATTN_DROPOUT,         # attention dropout
+        ff_dropout = FF_DROPOUT,           # feedforward dropout
     )
 
 # configure OpenAI VAE for float16s
