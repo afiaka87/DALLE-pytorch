@@ -1,3 +1,4 @@
+from functools import lru_cache, cached_property
 from pathlib import Path
 from random import randint, choice
 
@@ -52,6 +53,8 @@ class TextImageDataset(Dataset):
             T.ToTensor()
         ])
 
+
+    @cached_property
     def __len__(self):
         return len(self.keys)
 
@@ -63,11 +66,13 @@ class TextImageDataset(Dataset):
             return self.__getitem__(0)
         return self.__getitem__(ind + 1)
 
+    @lru_cache(max_size=None)
     def skip_sample(self, ind):
         if self.shuffle:
             return self.random_sample()
         return self.sequential_sample(ind=ind)
 
+    @lru_cache(max_size=None)
     def __getitem__(self, ind):
         key = self.keys[ind]
 

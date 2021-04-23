@@ -66,7 +66,7 @@ VAE_PATH = args.vae_path
 DALLE_PATH = args.dalle_path
 RESUME = exists(DALLE_PATH)
 
-EPOCHS = 10
+EPOCHS = 2
 LEARNING_RATE = args.lr
 GRAD_CLIP_NORM = args.gc_norm
 
