@@ -1,4 +1,4 @@
-from functools import lru_cache, cached_property
+from functools import lru_cache
 from pathlib import Path
 from random import randint, choice
 
@@ -14,7 +14,7 @@ class TextImageDataset(Dataset):
                  text_len=256,
                  image_size=128,
                  truncate_captions=False,
-                 resize_ratio=0.75,
+                 resize_ratio=0.9,
                  tokenizer=None,
                  shuffle=False
                  ):
@@ -53,34 +53,49 @@ class TextImageDataset(Dataset):
             T.ToTensor()
         ])
 
+    def apply_transform(image):
+        return self.image_transform(image)
 
-    @cached_property
+
+    @lru_cache(maxsize=1)
     def __len__(self):
         return len(self.keys)
 
     def random_sample(self):
         return self.__getitem__(randint(0, self.__len__() - 1))
 
+    @lru_cache(maxsize=None)
     def sequential_sample(self, ind):
         if ind >= self.__len__() - 1:
             return self.__getitem__(0)
         return self.__getitem__(ind + 1)
 
-    @lru_cache(max_size=None)
     def skip_sample(self, ind):
         if self.shuffle:
             return self.random_sample()
         return self.sequential_sample(ind=ind)
+    
+    @lru_cache(maxsize=None)
+    def caption_from_file(self, text_path):
+        descriptions = text_path.read_text().split('\n')
+        descriptions = list(filter(lambda t: len(t) > 0, descriptions))
+        return text_path.read_text().split('\n')
 
-    @lru_cache(max_size=None)
+    @lru_cache(maxsize=None)
+    def get_tokenized_text(self, description):
+        return self.tokenizer.tokenize(
+            description,
+            self.text_len,
+            truncate_text=self.truncate_captions
+        ).squeeze(0)
+
     def __getitem__(self, ind):
         key = self.keys[ind]
 
         text_file = self.text_files[key]
         image_file = self.image_files[key]
 
-        descriptions = text_file.read_text().split('\n')
-        descriptions = list(filter(lambda t: len(t) > 0, descriptions))
+        descriptions = self.caption_from_file(text_file) 
         try:
             description = choice(descriptions)
         except IndexError as zero_captions_in_file_ex:
@@ -88,13 +103,10 @@ class TextImageDataset(Dataset):
             print(f"Skipping index {ind}")
             return self.skip_sample(ind)
 
-        tokenized_text = self.tokenizer.tokenize(
-            description,
-            self.text_len,
-            truncate_text=self.truncate_captions
-        ).squeeze(0)
+        tokenized_text = self.get_tokenized_text(description)
+
         try:
-            image_tensor = self.image_transform(PIL.Image.open(image_file))
+            image_tensor = self.apply_transform(PIL.Image.open(image_file))
         except (PIL.UnidentifiedImageError, OSError) as corrupt_image_exceptions:
             print(f"An exception occurred trying to load file {image_file}.")
             print(f"Skipping index {ind}")
