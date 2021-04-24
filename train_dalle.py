@@ -19,19 +19,21 @@ parser = argparse.ArgumentParser()
 
 group = parser.add_mutually_exclusive_group(required=False) 
 group.add_argument('--vae_path', type=str, help='path to your trained discrete VAE') 
-group.add_argument('--dalle_path', type=str, help='path to your partially trained DALL-E')
+group.add_argument('--dalle_path', default='dalle.pt', type=str, help='path to your partially trained DALL-E')
 
-parser.add_argument('--image_text_folder', type=str, help='path to your folder of images and text for learning the DALL-E') 
+parser.add_argument('--image_text_folder', default='/workspace/Datasets/Dropbox/OI', type=str, help='path to your folder of images and text for learning the DALL-E') 
 
-parser.add_argument('--random_resize_crop_lower_ratio', dest='resize_ratio', type=float, default=0.85, help='Random resized crop lower ratio') 
-parser.add_argument('--lr', dest='lr', type=float, default=3.782e-4, help='Learning rate.') 
-parser.add_argument('--gc_norm', dest='gc_norm', type=float, default=1.0, help='normalize with this value after clipping gradients.') 
+parser.add_argument('--random_resize_crop_lower_ratio', dest='resize_ratio', type=float, default=0.95, help='Random resized crop lower ratio') 
+parser.add_argument('--lr', dest='lr', type=float, default=3e-4, help='Learning rate.') 
+parser.add_argument('--gc_norm', dest='gc_norm', type=float, default=0.5, help='normalize with this value after clipping gradients.') 
 
 parser.add_argument('--chinese', dest='chinese', action='store_true') 
 
-#parser.add_argument('--taming', dest='taming', action='store_true') 
+parser.add_argument('--taming', dest='taming', default=True) 
 
-#parser.add_argument('--reversible', dest='reversible', action='store_true') 
+parser.add_argument('--truncate_captions', dest='truncate_captions', action='store_true') 
+
+parser.add_argument('--reversible', default=True, dest='reversible') 
 
 parser.add_argument('--hug', dest='hug', action='store_true') 
 
@@ -39,10 +41,10 @@ parser.add_argument('--bpe_path', type=str, help='path to your huggingface BPE j
 
 parser.add_argument('--fp16', action='store_true', help='(experimental) - Enable DeepSpeed 16 bit precision. Reduces VRAM.') 
 
-parser.add_argument('--batch_size', dest='batch_size', type=int, default=32, help='Number of image-text pairs to be trained on at once.')
+parser.add_argument('--batch_size', dest='batch_size', type=int, default=24, help='Number of image-text pairs to be trained on at once.')
 
-parser.add_argument('--model_dim', dest='model_dim', type=int, default=128, help='Model diminsions.')
-parser.add_argument('--text_seq_len', dest='text_seq_len', type=int, default=64, help='Max text sequence length in tokenizer.' )
+parser.add_argument('--model_dim', dest='model_dim', type=int, default=512, help='Model diminsions.')
+parser.add_argument('--text_seq_len', dest='text_seq_len', type=int, default=128, help='Max text sequence length in tokenizer.' )
 parser.add_argument('--dim_head', dest='dim_head', type=int, default=64, help='Dimension of the attention heads.')
 
 parser.add_argument('--wandb_name', default='params', help='Name W&B will use when saving results. e.g. `--wandb_name "coco2017-full-sparse"`')
@@ -50,10 +52,8 @@ parser.add_argument('--attn_dropout', dest='attn_dropout', type=float, default=0
 parser.add_argument('--ff_dropout', dest='ff_dropout', type=float, default=0.1,help='Feedforward dropout.')
 parser = distributed_utils.wrap_arg_parser(parser)
 args = parser.parse_args()
-args.taming = True
 
 
-args.image_text_folder = "/workspace/Datasets/Dropbox/COCO/"
 # quit early if you used the wrong folder name
 assert Path(args.image_text_folder).exists(), f'The path {args.image_text_folder} was not found.'
 
@@ -65,9 +65,6 @@ def exists(val):
 
 
 # constants
-
-ATTN_DROPOUT = args.attn_dropout
-FF_DROPOUT = args.ff_dropout
 
 BATCH_SIZE = args.batch_size
 
@@ -84,10 +81,9 @@ TEXT_SEQ_LEN = args.text_seq_len # 256
 DEPTH = 8
 HEADS = 8
 DIM_HEAD = args.dim_head  # 64
-REVERSIBLE = False #args.reversible  # True
+REVERSIBLE = args.reversible  # True
 LOSS_IMG_WEIGHT = 7
 LR_DECAY = False
-ATTN_TYPES=('full', 'axial_row', 'axial_col', 'conv_like'),
 
 #EPOCHS = 20
 #BATCH_SIZE = args.batch_size
@@ -102,6 +98,7 @@ ATTN_TYPES=('full', 'axial_row', 'axial_col', 'conv_like'),
 #REVERSIBLE = True
 #LOSS_IMG_WEIGHT = 7
 #LR_DECAY = False
+print(f"Taming is set to {args.taming}")
 # initialize distributed backend
 
 distr_backend = distributed_utils.set_backend_from_args(args)
@@ -161,17 +158,15 @@ else:
 
     dalle_params = dict(
         num_text_tokens=tokenizer.vocab_size,
-        text_seq_len=TEXT_SEQ_LEN,
-        dim=MODEL_DIM,
+        text_seq_len=args.text_seq_len,
+        dim=args.model_dim,
         depth=DEPTH,
         heads=HEADS,
         dim_head=DIM_HEAD,
         reversible=REVERSIBLE,
         loss_img_weight=LOSS_IMG_WEIGHT,
-        attn_types=('full', 'axial_row', 'axial_col', 'conv_like'),
-        attn_dropout = ATTN_DROPOUT,         # attention dropout
-        ff_dropout = FF_DROPOUT,           # feedforward dropout
     )
+#attn_types=('full', 'full','full', 'axial_row', 'full', 'axial_col', 'full', 'conv_like'),
 
 # configure OpenAI VAE for float16s
 
@@ -210,14 +205,14 @@ def group_weight(model):
 
 # create dataset and dataloader
 
-is_shuffle = True #not distributed_utils.using_backend(distributed_utils.HorovodBackend)
+is_shuffle = False #not distributed_utils.using_backend(distributed_utils.HorovodBackend)
 
 ds = TextImageDataset(
     args.image_text_folder,
     text_len=TEXT_SEQ_LEN,
     image_size=IMAGE_SIZE,
     resize_ratio=args.resize_ratio,
-    truncate_captions=True,# args.truncate_captions,
+    truncate_captions=args.truncate_captions,
     tokenizer=tokenizer,
     shuffle=is_shuffle,
 )
@@ -277,7 +272,6 @@ if distr_backend.is_root_worker():
         heads=HEADS,
         dim_head=DIM_HEAD,
         reversible=REVERSIBLE,
-        attn_types=ATTN_TYPES,
     )
 
     run = wandb.init(
@@ -293,7 +287,7 @@ deepspeed_config = {
     'train_batch_size': BATCH_SIZE,
     'gradient_clipping': GRAD_CLIP_NORM,
     #'fp16': { 'enabled': False },
-#    "amp": { "enabled": True, "opt_level": "O1", }
+    #"amp": { "enabled": True, "opt_level": "O1", }
 }
 
 (distr_dalle, distr_opt, distr_dl, distr_scheduler) = distr_backend.distribute(
@@ -344,8 +338,8 @@ for epoch in range(EPOCHS):
                 }
 
             if i % 100 == 0:
-                save_model(f'./dalle.pt')
-                wandb.save(f'./dalle.pt')
+                #save_model(f'./dalle.pt')
+                #wandb.save(f'./dalle.pt')
 
                 sample_text = text[:1]
                 token_list = sample_text.masked_select(sample_text != 0).tolist()
@@ -362,6 +356,8 @@ for epoch in range(EPOCHS):
                 }
 
             wandb.log(log)
+            if i >= 2000:
+                break
 
     if LR_DECAY and not using_deepspeed:
         # Scheduler is automatically progressed after the step when
@@ -369,10 +365,10 @@ for epoch in range(EPOCHS):
         distr_scheduler.step(loss)
 
 if distr_backend.is_root_worker():
-    save_model(f'./dalle-final.pt')
-    wandb.save('./dalle-final.pt')
-    model_artifact = wandb.Artifact('trained-dalle', type='model', metadata=dict(model_config))
-    model_artifact.add_file('dalle-final.pt')
-    run.log_artifact(model_artifact)
+    #save_model(f'./dalle-final.pt')
+    #wandb.save('./dalle-final.pt')
+    #model_artifact = wandb.Artifact('trained-dalle', type='model', metadata=dict(model_config))
+    #model_artifact.add_file('dalle-final.pt')
+    #run.log_artifact(model_artifact)
 
     wandb.finish()
