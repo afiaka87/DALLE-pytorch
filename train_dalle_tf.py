@@ -2,12 +2,13 @@ import argparse
 from pathlib import Path
 
 import torch
-import wandb  # Quit early if user doesn't have wandb installed.
 from torch.nn.utils import clip_grad_norm_
 from torch.optim import Adam
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
 
+import wandb  # Quit early if user doesn't have wandb installed.
 from dalle_pytorch import OpenAIDiscreteVAE, VQGanVAE1024, DiscreteVAE, DALLE
 from dalle_pytorch import distributed_utils
 from dalle_pytorch.loader import TextImageDataset
@@ -45,67 +46,21 @@ parser.add_argument('--bpe_path', type=str,
 
 parser.add_argument('--fp16', action='store_true',
                     help='(experimental) - Enable DeepSpeed 16 bit precision. Reduces VRAM.')
-
+parser.add_argument('--use_tb', dest='use_tb', action='store_true', help='Use tensorboard for logging.')
 parser.add_argument('--wandb_name', default='dalle_train_transformer',
                     help='Name W&B will use when saving results.\ne.g. `--wandb_name "coco2017-full-sparse"`')
-
 parser = distributed_utils.wrap_arg_parser(parser)
-
-train_group = parser.add_argument_group('Training settings')
-
-train_group.add_argument('--epochs', default = 20, type = int, help = 'Number of epochs')
-
-train_group.add_argument('--batch_size', default = 4, type = int, help = 'Batch size')
-
-train_group.add_argument('--learning_rate', default = 3.7e-4, type = float, help = 'Learning rate')
-
-train_group.add_argument('--clip_grad_norm', default = 0.5, type = float, help = 'Clip gradient norm')
-
-train_group.add_argument('--lr_decay', dest = 'lr_decay', action = 'store_true')
-
-model_group = parser.add_argument_group('Model settings')
-
-model_group.add_argument('--dim', default = 40, type = int, help = 'Model dimension')
-
-model_group.add_argument('--text_seq_len', default = 128, type = int, help = 'Text sequence length')
-
-model_group.add_argument('--depth', default = 6, type = int, help = 'Model depth')
-
-model_group.add_argument('--heads', default = 8, type = int, help = 'Model number of heads')
-
-model_group.add_argument('--dim_head', default = 32, type = int, help = 'Model head dimension')
-
-model_group.add_argument('--reversible', dest = 'reversible', action='store_true')
-
-model_group.add_argument('--loss_img_weight', default = 7, type = int, help = 'Image loss weight')
-
-model_group.add_argument('--attn_types', default = 'full', type = str, help = 'comma separated list of attention types. attention type can be: full or sparse or axial_row or axial_col or conv_like.')
-
 args = parser.parse_args()
 
 # quit early if you used the wrong folder name
-
 assert Path(args.image_text_folder).exists(), f'The path {args.image_text_folder} was not found.'
+
 
 # helpers
 
 def exists(val):
     return val is not None
 
-def get_trainable_params(model):
-    return [params for params in model.parameters() if params.requires_grad]
-
-def cp_path_to_dir(cp_path, tag):
-    """Convert a checkpoint path to a directory with `tag` inserted.
-    If `cp_path` is already a directory, return it unchanged.
-    """
-    if not isinstance(cp_path, Path):
-        cp_path = Path(cp_path)
-    if cp_path.is_dir():
-        return cp_path
-    path_sans_extension = cp_path.parent / cp_path.stem
-    cp_dir = Path(f'{path_sans_extension}-{tag}-cp')
-    return cp_dir
 
 # constants
 
@@ -113,24 +68,19 @@ VAE_PATH = args.vae_path
 DALLE_PATH = args.dalle_path
 RESUME = exists(DALLE_PATH)
 
-EPOCHS = args.epochs
-BATCH_SIZE = args.batch_size
-
-LEARNING_RATE = args.learning_rate
-GRAD_CLIP_NORM = args.clip_grad_norm
-LR_DECAY = args.lr_decay
+EPOCHS = 20
+BATCH_SIZE = 4
+LEARNING_RATE = 3e-4
+GRAD_CLIP_NORM = 0.5
 
 MODEL_DIM = 256
-TEXT_SEQ_LEN = 128
-DEPTH = 5
+TEXT_SEQ_LEN = 80
+DEPTH = 2
 HEADS = 4
-DIM_HEAD = 32
+DIM_HEAD = 64
 REVERSIBLE = True
-LOSS_IMG_WEIGHT = args.loss_img_weight
-
-ATTN_TYPES = tuple(args.attn_types.split(','))
-
-DEEPSPEED_CP_AUX_FILENAME = 'auxiliary.pt'
+LOSS_IMG_WEIGHT = 7
+LR_DECAY = False
 
 # initialize distributed backend
 
@@ -152,13 +102,8 @@ elif args.chinese:
 
 if RESUME:
     dalle_path = Path(DALLE_PATH)
-    if using_deepspeed:
-        cp_dir = cp_path_to_dir(dalle_path, 'ds')
-        assert cp_dir.is_dir(), \
-            f'DeepSpeed checkpoint directory {cp_dir} not found'
-        dalle_path = cp_dir / DEEPSPEED_CP_AUX_FILENAME
-    else:
-        assert dalle_path.exists(), 'DALL-E model file does not exist'
+    assert dalle_path.exists(), 'DALL-E model file does not exist'
+
     loaded_obj = torch.load(str(dalle_path), map_location='cpu')
 
     dalle_params, vae_params, weights = loaded_obj['hparams'], loaded_obj['vae_params'], loaded_obj['weights']
@@ -177,11 +122,6 @@ else:
     if exists(VAE_PATH):
         vae_path = Path(VAE_PATH)
         assert vae_path.exists(), 'VAE model file does not exist'
-        assert not vae_path.is_dir(), \
-            ('Cannot load VAE model from directory; please use a '
-             'standard *.pt checkpoint. '
-             'Currently, merging a DeepSpeed-partitioned VAE into a DALLE '
-             'model is not supported.')
 
         loaded_obj = torch.load(str(vae_path))
 
@@ -207,9 +147,7 @@ else:
         heads=HEADS,
         dim_head=DIM_HEAD,
         reversible=REVERSIBLE,
-        loss_img_weight=LOSS_IMG_WEIGHT,
-        attn_types=('axial_row', 'axial_row', 'axial_col', 'axial_row', 'conv_like'),
-        #attn_types=ATTN_TYPES,
+        loss_img_weight=LOSS_IMG_WEIGHT
     )
 
 # configure OpenAI VAE for float16s
@@ -219,6 +157,19 @@ if isinstance(vae, OpenAIDiscreteVAE) and args.fp16:
 
 
 # helpers
+
+def save_model(path):
+    if not distr_backend.is_root_worker():
+        return
+
+    save_obj = {
+        'hparams': dalle_params,
+        'vae_params': vae_params,
+        'weights': dalle.state_dict()
+    }
+
+    torch.save(save_obj, path)
+
 
 def group_weight(model):
     group_decay, group_no_decay = [], []
@@ -272,12 +223,12 @@ if not using_deepspeed:
         dalle = dalle.half()
     dalle = dalle.cuda()
 
-if RESUME and not using_deepspeed:
+if RESUME:
     dalle.load_state_dict(weights)
 
 # optimizer
 
-opt = Adam(get_trainable_params(dalle), lr=LEARNING_RATE)
+opt = Adam(dalle.parameters(), lr=LEARNING_RATE)
 
 if LR_DECAY:
     scheduler = ReduceLROnPlateau(
@@ -320,59 +271,19 @@ deepspeed_config = {
     args=args,
     model=dalle,
     optimizer=opt,
-    model_parameters=get_trainable_params(dalle),
+    model_parameters=dalle.parameters(),
     training_data=ds if using_deepspeed else dl,
     lr_scheduler=scheduler if LR_DECAY else None,
     config_params=deepspeed_config,
 )
 avoid_model_calls = using_deepspeed and args.fp16
 
-if RESUME and using_deepspeed:
-    distr_dalle.load_checkpoint(str(cp_dir))
-
-
-def save_model(path):
-    save_obj = {
-        'hparams': dalle_params,
-        'vae_params': vae_params,
-    }
-    if using_deepspeed:
-        cp_dir = cp_path_to_dir(path, 'ds')
-
-        distr_dalle.save_checkpoint(cp_dir, client_state=save_obj)
-
-        if not distr_backend.is_root_worker():
-            return
-
-        # Save auxiliary values so we can reuse the standard routine
-        # for loading.
-        save_obj = {
-            **save_obj,
-            # Save a nonsense value that directs the user to
-            # further help.
-            'weights': (
-                'To get a working standard checkpoint, '
-                'look into consolidating DeepSpeed checkpoints.'
-            ),
-        }
-        torch.save(save_obj, str(cp_dir / DEEPSPEED_CP_AUX_FILENAME))
-        return
-
-    if not distr_backend.is_root_worker():
-        return
-
-    save_obj = {
-        **save_obj,
-        'weights': dalle.state_dict()
-    }
-
-    torch.save(save_obj, path)
-
 # training
+writer = None
+if args.use_tb:
+    writer = SummaryWriter()
 
 for epoch in range(EPOCHS):
-    if data_sampler:
-        data_sampler.set_epoch(epoch)
     for i, (text, images) in enumerate(distr_dl):
         if args.fp16:
             images = images.half()
@@ -393,39 +304,42 @@ for epoch in range(EPOCHS):
         # Collective loss, averaged
         avg_loss = distr_backend.average_all(loss)
 
-        log = {}
+        if distr_backend.is_root_worker():
+            log = {}
 
-        if i % 10 == 0 and distr_backend.is_root_worker():
-            print(epoch, i, f'loss - {avg_loss.item()}')
+            if i % 10 == 0:
+                print(epoch, i, f'loss - {avg_loss.item()}')
 
-            log = {
-                **log,
-                'epoch': epoch,
-                'iter': i,
-                'loss': avg_loss.item()
-            }
+                log = {
+                    **log,
+                    'epoch': epoch,
+                    'iter': i,
+                    'loss': avg_loss.item()
+                }
+                if args.use_tb:
+                    writer.add_scalar("loss", loss, epoch * len(distr_dl) + i)
 
-        if i % 100 == 0:
-            if distr_backend.is_root_worker():
+            if i % 100 == 0:
                 sample_text = text[:1]
                 token_list = sample_text.masked_select(sample_text != 0).tolist()
                 decoded_text = tokenizer.decode(token_list)
 
                 if not avoid_model_calls:
                     # CUDA index errors when we don't guard this
-                    image = dalle.generate_images(text[:1], filter_thres=0.9)  # topk sampling at 0.9
+                    generated_image = dalle.generate_images(text[:1], filter_thres=0.9)  # topk sampling at 0.9
 
+                save_model(f'./dalle.pt')
                 wandb.save(f'./dalle.pt')
 
                 log = {
                     **log,
                 }
                 if not avoid_model_calls:
-                    log['image'] = wandb.Image(image, caption=decoded_text)
+                    log['image'] = wandb.Image(generated_image, caption=decoded_text)
+                    if args.use_tb:
+                        writer.add_text('caption', decoded_text, epoch * len(distr_dl) + i)
+                        writer.add_images('image', generated_image, epoch * len(distr_dl) + i)
 
-            save_model(f'./dalle.pt')
-
-        if distr_backend.is_root_worker():
             wandb.log(log)
 
     if LR_DECAY and not using_deepspeed:
@@ -435,16 +349,17 @@ for epoch in range(EPOCHS):
 
     if distr_backend.is_root_worker():
         # save trained model to wandb as an artifact every epoch's end
-
         model_artifact = wandb.Artifact('trained-dalle', type='model', metadata=dict(model_config))
         model_artifact.add_file('dalle.pt')
         run.log_artifact(model_artifact)
+        if args.use_tb:
+            writer.add_graph(dalle)
+            writer.close()
 
-save_model(f'./dalle-final.pt')
 if distr_backend.is_root_worker():
+    save_model(f'./dalle-final.pt')
     wandb.save('./dalle-final.pt')
     model_artifact = wandb.Artifact('trained-dalle', type='model', metadata=dict(model_config))
     model_artifact.add_file('dalle-final.pt')
     run.log_artifact(model_artifact)
-
     wandb.finish()
