@@ -53,8 +53,15 @@ parser.add_argument('--fp16', action='store_true',
 
 parser.add_argument(
 	'--amp',
+	'--ds_amp',
 	action='store_true',
-	help='Apex "O1" automatic mixed precision. More stable than 16 bit precision. Can\'t be used in conjunction with deepspeed zero stages 1-3.'
+	help='DeepSpeed Stage 0 Only. Apex "O1" automatic mixed precision. More stable than 16 bit precision.
+)
+
+parser.add_argument(
+	'--warmup_decay',
+	action='store_true',
+	help='DeepSpeed Stage 0-3. Warm up for 2% of training steps. Then decay for remainder of training.\n"
 )
 
 parser.add_argument('--wandb_name', default='dalle_train_transformer',
@@ -278,10 +285,9 @@ if not is_shuffle:
 else:
     data_sampler = None
 
-dl = DataLoader(ds, batch_size=BATCH_SIZE, shuffle=is_shuffle, drop_last=True, sampler=data_sampler)
+dl = DataLoader(ds, batch_size=BATCH_SIZE, shuffle=is_shuffle, drop_last=True, sampler=data_sampler) 
 
 # initialize DALL-E
-
 
 dalle = DALLE(vae=vae, **dalle_params)
 if not using_deepspeed:
@@ -296,7 +302,12 @@ if RESUME and not using_deepspeed:
 
 opt = Adam(get_trainable_params(dalle), lr=LEARNING_RATE)
 
-if LR_DECAY:
+# scheduler
+
+if args.warmup_decay and using_deepspeed:
+    total_num_steps = int(len(ds) / BATCH_SIZE / args.ga_steps * EPOCHS) # TODO double check math.
+    warmup_num_steps = int(total_num_steps * 0.02)
+else if LR_DECAY:
     scheduler = ReduceLROnPlateau(
         opt,
         mode="min",
@@ -306,7 +317,7 @@ if LR_DECAY:
         min_lr=1e-6,
         verbose=True,
     )
-
+    
 if distr_backend.is_root_worker():
     # experiment tracker
 
@@ -335,6 +346,15 @@ deepspeed_config = {
     'amp': {
         'enabled': args.amp,
         'opt_level': 'O1',
+    },
+    "scheduler": {
+        "type": "WarmupDecayLR" if args.warmup_decay and using_deepspeed else None,
+        "params": {
+            "total_num_steps": total_num_steps,
+            "warmup_min_lr": 0,
+            "warmup_max_lr": LEARNING_RATE,
+            "warmup_num_steps": 0, # total_num_steps * 0.02, # Warmup for two percent of all steps.
+        },
     },
 }
 
