@@ -137,3 +137,6 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+.idea
+deactivate
+DALLE-pytorch_venv

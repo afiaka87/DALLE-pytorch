@@ -1,0 +1,14 @@
+deepspeed train_dalle.py \
+	--taming \
+	--image_text_folder FOOD101 \
+	--learning_rate 3.728e-4 \
+	--batch_size 16 \
+	--attn_types mlp,sparse \
+	--text_seq_len 64 \
+	--dim 256 \
+	--dim_head 32 \
+	--random_resize_crop_lower_ratio 1.0 \
+	--depth 8 \
+	--heads 32 \
+	--deepspeed \
+	--fp16
