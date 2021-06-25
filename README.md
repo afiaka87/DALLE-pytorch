@@ -72,7 +72,7 @@ deepspeed train_dalle.py \
 	--truncate_captions \
 	--batch_size 1 \
 	--keep_n_checkpoints 5 \
-	--image_text_folder /mnt/evo_internal_1TB/CurrentDatasets/COCO \
+	--image_text_folder $cache_dir/openai_blog_dataset \
 	--wandb_name "$project_name" \
 	--deepspeed \
 	--fp16
