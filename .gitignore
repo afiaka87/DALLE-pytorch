@@ -142,5 +142,5 @@ deactivate
 DALLE-pytorch_venv
 deepspeed
 project_captions.txt
-taming-transformers
+dalle_pytorch/taming-transformers
 custom_train_dalle.sh
