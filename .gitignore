@@ -144,3 +144,4 @@ deepspeed
 project_captions.txt
 dalle_pytorch/taming-transformers
 custom_train_dalle.sh
+/.run/train_dalle.run.xml
