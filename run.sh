@@ -1,14 +1,34 @@
+#!/bin/bash
+## run_dalle_pytorch.sh
+## Runs dalle-pytorch with DeepSpeed using 16 bit precision.
+
+project_name='gumbelvqgan'
+afiaka_bpe='captions/afiaka87_58219.bpe.gz'
+user_dir=$USER
+#vqgan_model_name=/home/$USER/.cache/dalle/vqgan_gumbel_f8_8192.ckpt
+#vqgan_config_name=/home/$USER/.cache/dalle/vqgan_gumbel_f8_8192.yaml
+vqgan_model_path=vqgan_gumbel_f8_8192.ckpt
+vqgan_config_path=vqgan_gumbel_f8_8192.yaml
+dataset_directory=/mnt/evo_internal_1TB/CurrentDatasets/COCO
+
 deepspeed train_dalle.py \
+	--bpe_path $afiaka_bpe \
 	--taming \
-	--image_text_folder FOOD101 \
-	--learning_rate 3.728e-4 \
-	--batch_size 16 \
-	--attn_types mlp,sparse \
+	--vqgan_config_path $vqgan_config_path \
+	--vqgan_model_path $vqgan_model_path \
+	--random_resize_crop_lower_ratio "1.0" \
+	--learning_rate '3e-4' \
+	--loss_img_weight 1 \
+	--attn_types "sparse" \
 	--text_seq_len 64 \
 	--dim 256 \
-	--dim_head 32 \
-	--random_resize_crop_lower_ratio 1.0 \
-	--depth 8 \
-	--heads 32 \
+	--depth 2 \
+	--heads 8 \
+	--dim_head 64 \
+	--truncate_captions \
+	--batch_size 1 \
+	--keep_n_checkpoints 5 \
+	--image_text_folder /mnt/evo_internal_1TB/CurrentDatasets/COCO \
+	--wandb_name "$project_name" \
 	--deepspeed \
 	--fp16

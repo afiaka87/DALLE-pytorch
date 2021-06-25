@@ -140,3 +140,6 @@ dmypy.json
 .idea
 deactivate
 DALLE-pytorch_venv
+deepspeed
+project_captions.txt
+taming-transformers
