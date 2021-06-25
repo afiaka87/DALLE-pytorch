@@ -1,5 +1,9 @@
 # Train a dalle model from scratch
 
+This fork is just a working directory for me to make highly opinionated changes specific to my desktop gaming pc.
+If you have an RTX 2070 and a debian based linux distro installed this fork is for you!
+Otherwise, check upstream at lucidrains/dalle-pytorch
+
 ## Download and install dalle-pytorch-afiaka
 
 ```sh
