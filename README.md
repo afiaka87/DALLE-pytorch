@@ -4,22 +4,10 @@ This fork is just a working directory for me to make highly opinionated changes 
 If you have an RTX 2070 and a debian based linux distro installed this fork is for you!
 Otherwise, check upstream at lucidrains/dalle-pytorch
 
-## Download and install dalle-pytorch-afiaka
 
-```sh
-git clone https://github.com/afiaka87/dalle-pytorch --single-branch 'working_directory'
-cd dalle-pytorch;
-python3 -m venv dalle_pytorch_venv;
-source dalle_pytorch_venv/bin/activate;
-```
-
-## Install Microsoft DeepSpeed/Nvidia Apex/W&B
-
-It may say sparse attention has failed to install; that's okay.
-
-```sh
-chmod a+x './scripts/install_deepspeed.sh';
-'./scripts/install_deepspeed.sh';
+```sh 
+docker build -t dalle docker
+docker run --gpus all -it --mount src="$(pwd)",target=/workspace/dalle,type=bind dalle:latest bash
 ```
 
 ## Download a dataset

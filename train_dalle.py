@@ -1,27 +1,25 @@
 import argparse
-from pathlib import Path
-import time
-from glob import glob
 import os
 import shutil
+import time
+from glob import glob
+from io import BytesIO
+from pathlib import Path
 
 import torch
-import wandb  # Quit early if user doesn't have wandb installed.
+import wandb
+import webdataset as wds
+from PIL import Image
 from torch.nn.utils import clip_grad_norm_
 from torch.optim import Adam
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader
+from torchvision import transforms as T
 
 from dalle_pytorch import OpenAIDiscreteVAE, VQGanVAE, DiscreteVAE, DALLE
 from dalle_pytorch import distributed_utils
 from dalle_pytorch.loader import TextImageDataset
 from dalle_pytorch.tokenizer import tokenizer, HugTokenizer, ChineseTokenizer, YttmTokenizer
-
-# libraries needed for webdataset support
-import webdataset as wds
-from torchvision import transforms as T
-from PIL import Image
-from io import BytesIO
 
 # argument parsing
 
@@ -40,7 +38,7 @@ group.add_argument('--dalle_path',
 parser.add_argument(
     '--vqgan_model_path',
     type=str,
-    default=None,
+    default=Path('vqgan_gumbel.8192.model.ckpt'),
     help=
     'path to your trained VQGAN weights. This should be a .ckpt file. (only valid when taming option is enabled)'
 )
@@ -48,7 +46,7 @@ parser.add_argument(
 parser.add_argument(
     '--vqgan_config_path',
     type=str,
-    default=None,
+    default=Path('vqgan_gumbel.8192.model.yaml'),
     help=
     'path to your trained VQGAN config. This should be a .yaml file. (only valid when taming option is enabled)'
 )
@@ -230,17 +228,17 @@ def get_trainable_params(model):
     return [params for params in model.parameters() if params.requires_grad]
 
 
-def cp_path_to_dir(cp_path, tag):
+def ckpt_to_dir(ckpt_path, tag):
     """Convert a checkpoint path to a directory with `tag` inserted.
     If `cp_path` is already a directory, return it unchanged.
     """
-    if not isinstance(cp_path, Path):
-        cp_path = Path(cp_path)
-    if cp_path.is_dir():
-        return cp_path
-    path_sans_extension = cp_path.parent / cp_path.stem
-    cp_dir = Path(f'{path_sans_extension}-{tag}-cp')
-    return cp_dir
+    if not isinstance(ckpt_path, Path):
+        ckpt_path = Path(ckpt_path)
+    if ckpt_path.is_dir():
+        return ckpt_path
+    path_sans_extension = ckpt_path.parent / ckpt_path.stem
+    checkpoint_dir = Path(f'{path_sans_extension}-{tag}-cp')
+    return checkpoint_dir
 
 
 # constants
@@ -333,7 +331,7 @@ elif args.chinese:
 if RESUME:
     dalle_path = Path(DALLE_PATH)
     if using_deepspeed:
-        cp_dir = cp_path_to_dir(dalle_path, 'ds')
+        cp_dir = ckpt_to_dir(dalle_path, 'ds')
         assert cp_dir.is_dir(), \
             f'DeepSpeed checkpoint directory {cp_dir} not found'
         dalle_path = cp_dir / DEEPSPEED_CP_AUX_FILENAME
@@ -563,7 +561,7 @@ deepspeed_config = {
     # "zero_allow_untested_optimizer": True,
     # "steps_per_print": 1,
     "zero_optimization": {
-        "stage": 3,
+        "stage": 0,
         "offload_optimizer": {
             "device": "cpu",
             # "pin_memory": True,
@@ -657,7 +655,7 @@ def save_model(path, epoch=0):
         'epoch': epoch,
     }
     if using_deepspeed:
-        cp_dir = cp_path_to_dir(path, 'ds')
+        cp_dir = ckpt_to_dir(path, 'ds')
 
         if KEEP_N_CHECKPOINTS is not None and distr_backend.is_root_worker():
             checkpoints = sorted(glob(str(cp_dir / "global*")),
@@ -689,13 +687,9 @@ def save_model(path, epoch=0):
     if not distr_backend.is_root_worker():
         return
 
-    save_obj = {
-        **save_obj,
-        'weights': dalle.state_dict(),
-        'opt_state': opt.state_dict(),
-    }
-    save_obj['scheduler_state'] = (scheduler.state_dict()
-                                   if scheduler else None)
+    save_obj = {**save_obj, 'weights': dalle.state_dict(), 'opt_state': opt.state_dict(),
+                'scheduler_state': (scheduler.state_dict()
+                                    if scheduler else None)}
     torch.save(save_obj, path)
 
 
