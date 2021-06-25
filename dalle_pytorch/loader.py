@@ -2,7 +2,6 @@ from pathlib import Path
 from random import randint, choice
 
 import PIL
-
 from torch.utils.data import Dataset
 from torchvision import transforms as T
 

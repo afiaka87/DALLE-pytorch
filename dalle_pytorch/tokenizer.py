@@ -1,25 +1,26 @@
 # take from https://github.com/openai/CLIP/blob/main/clip/simple_tokenizer.py
 # to give users a quick easy start to training DALL-E without doing BPE
 
-import torch
+import html
+import os
+from functools import lru_cache
+from pathlib import Path
 
+import ftfy
+import regex as re
+import torch
 import youtokentome as yttm
 from tokenizers import Tokenizer
 from tokenizers.processors import ByteLevel
 from transformers import BertTokenizer
 
-import html
-import os
-from functools import lru_cache
-from pathlib import Path
-import ftfy
-import regex as re
 
 # OpenAI simple tokenizer
 
 @lru_cache()
 def default_bpe():
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), "data/bpe_simple_vocab_16e6.txt")
+
 
 @lru_cache()
 def bytes_to_unicode():
@@ -34,6 +35,7 @@ def bytes_to_unicode():
     cs = [chr(n) for n in cs]
     return dict(zip(bs, cs))
 
+
 def get_pairs(word):
     pairs = set()
     prev_char = word[0]
@@ -42,18 +44,21 @@ def get_pairs(word):
         prev_char = char
     return pairs
 
+
 def basic_clean(text):
     text = ftfy.fix_text(text)
     text = html.unescape(html.unescape(text))
     return text.strip()
+
 
 def whitespace_clean(text):
     text = re.sub(r'\s+', ' ', text)
     text = text.strip()
     return text
 
+
 class SimpleTokenizer(object):
-    def __init__(self, bpe_path = default_bpe()):
+    def __init__(self, bpe_path=default_bpe()):
         self.byte_encoder = bytes_to_unicode()
         self.byte_decoder = {v: k for k, v in self.byte_encoder.items()}
         merges = Path(bpe_path).read_text(encoding='utf8').split('\n')
@@ -124,7 +129,7 @@ class SimpleTokenizer(object):
             bpe_tokens.extend(self.encoder[bpe_token] for bpe_token in self.bpe(token).split(' '))
         return bpe_tokens
 
-    def decode(self, tokens, remove_start_end = True):
+    def decode(self, tokens, remove_start_end=True):
         if torch.is_tensor(tokens):
             tokens = tokens.tolist()
 
@@ -134,7 +139,7 @@ class SimpleTokenizer(object):
         text = bytearray([self.byte_decoder[c] for c in text]).decode('utf-8', errors="replace").replace('</w>', ' ')
         return text
 
-    def tokenize(self, texts, context_length = 256, truncate_text = False):
+    def tokenize(self, texts, context_length=256, truncate_text=False):
         if isinstance(texts, str):
             texts = [texts]
 
@@ -151,16 +156,18 @@ class SimpleTokenizer(object):
 
         return result
 
+
 tokenizer = SimpleTokenizer()
+
 
 # huggingface tokenizer
 
 class HugTokenizer:
-    def __init__(self, bpe_path = None):
+    def __init__(self, bpe_path=None):
         bpe_path = Path(bpe_path)
         assert bpe_path.exists(), f'BPE json path {str(bpe_path)} does not exist'
         tokenizer = Tokenizer.from_file(str(bpe_path))
-        tokenizer.post_processor = ByteLevel(trim_offsets = True)
+        tokenizer.post_processor = ByteLevel(trim_offsets=True)
         self.tokenizer = tokenizer
         self.vocab_size = tokenizer.get_vocab_size()
 
@@ -169,12 +176,12 @@ class HugTokenizer:
             tokens = tokens.tolist()
 
         tokens = [token for token in tokens if token not in (0,)]
-        return self.tokenizer.decode(tokens, skip_special_tokens = True)
+        return self.tokenizer.decode(tokens, skip_special_tokens=True)
 
     def encode(self, text):
         return self.tokenizer.encode(text).ids
 
-    def tokenize(self, texts, context_length = 256, truncate_text = False):
+    def tokenize(self, texts, context_length=256, truncate_text=False):
         if isinstance(texts, str):
             texts = [texts]
 
@@ -190,6 +197,7 @@ class HugTokenizer:
             result[i, :len(tokens)] = torch.tensor(tokens)
 
         return result
+
 
 # chinese tokenizer
 
@@ -207,9 +215,9 @@ class ChineseTokenizer:
         return self.tokenizer.decode(tokens)
 
     def encode(self, text):
-        return torch.tensor(self.tokenizer.encode(text, add_special_tokens = False))
+        return torch.tensor(self.tokenizer.encode(text, add_special_tokens=False))
 
-    def tokenize(self, texts, context_length = 256, truncate_text = False):
+    def tokenize(self, texts, context_length=256, truncate_text=False):
         if isinstance(texts, str):
             texts = [texts]
 
@@ -226,14 +234,15 @@ class ChineseTokenizer:
 
         return result
 
+
 # yttm tokenizer
 
 class YttmTokenizer:
-    def __init__(self, bpe_path = None):
+    def __init__(self, bpe_path=None):
         bpe_path = Path(bpe_path)
         assert bpe_path.exists(), f'BPE json path {str(bpe_path)} does not exist'
 
-        tokenizer = yttm.BPE(model = str(bpe_path))
+        tokenizer = yttm.BPE(model=str(bpe_path))
         self.tokenizer = tokenizer
         self.vocab_size = tokenizer.vocab_size()
 
@@ -241,13 +250,13 @@ class YttmTokenizer:
         if torch.is_tensor(tokens):
             tokens = tokens.tolist()
 
-        return self.tokenizer.decode(tokens, ignore_ids = [0])
+        return self.tokenizer.decode(tokens, ignore_ids=[0])
 
     def encode(self, texts):
-        encoded = self.tokenizer.encode(texts, output_type = yttm.OutputType.ID)
+        encoded = self.tokenizer.encode(texts, output_type=yttm.OutputType.ID)
         return list(map(torch.tensor, encoded))
 
-    def tokenize(self, texts, context_length = 256, truncate_text = False):
+    def tokenize(self, texts, context_length=256, truncate_text=False):
         if isinstance(texts, str):
             texts = [texts]
 

@@ -1,22 +1,17 @@
 import argparse
 from pathlib import Path
-from tqdm import tqdm
-
-# torch
 
 import torch
-
 from einops import repeat
-
-# vision imports
-
-from PIL import Image
-from torchvision.utils import make_grid, save_image
-
-# dalle related classes and utils
+from torchvision.utils import save_image
+from tqdm import tqdm
 
 from dalle_pytorch import DiscreteVAE, OpenAIDiscreteVAE, VQGanVAE, DALLE
 from dalle_pytorch.tokenizer import tokenizer, HugTokenizer, YttmTokenizer, ChineseTokenizer
+
+# torch
+# vision imports
+# dalle related classes and utils
 
 # argument parsing
 

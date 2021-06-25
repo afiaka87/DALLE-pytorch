@@ -1,25 +1,22 @@
+import argparse
 import math
 from math import sqrt
-import argparse
 from pathlib import Path
-
-# torch
 
 import torch
 from torch.optim import Adam
 from torch.optim.lr_scheduler import ExponentialLR
-
-# vision imports
-
-from torchvision import transforms as T
 from torch.utils.data import DataLoader
+from torchvision import transforms as T
 from torchvision.datasets import ImageFolder
-from torchvision.utils import make_grid, save_image
+from torchvision.utils import make_grid
 
-# dalle classes and utils
-
-from dalle_pytorch import distributed_utils
 from dalle_pytorch import DiscreteVAE
+from dalle_pytorch import distributed_utils
+
+# torch
+# vision imports
+# dalle classes and utils
 
 # argument parsing
 
