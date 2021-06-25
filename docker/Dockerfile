@@ -16,21 +16,21 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 RUN mkdir -p XKCD
 RUN wget https://www.dropbox.com/s/5lby10gezot4obn/XKCD_Dataset.tar.gz && tar xf XKCD_Dataset.tar.gz --directory=XKCD 
 
-# dalle-pytorch
-RUN git clone https://github.com/afiaka87/dalle-pytorch.git /tmp/dalle-pytorch
-RUN cd /tmp/dalle-pytroch && python setup.py install
+## dalle-pytorch
+#RUN git clone https://github.com/afiaka87/dalle-pytorch.git /tmp/dalle-pytorch
+#RUN cd /tmp/dalle-pytroch && python setup.py install
 # W&B
-RUN python -m pip install wandb gpustat 
+RUN pip3 install wandb gpustat 
 
 # Starship.rs
 RUN sh -c "$(curl -fsSL https://starship.rs/install.sh)" 
 
 # DeepSpeed
-RUN git clone https://github.com/microsoft/DeepSpeed.git /tmp/DeepSpeed
-RUN cd /tmp/DeepSpeed && DS_BUILD_OPS=1 ./install.sh -r
+#RUN git clone https://github.com/microsoft/DeepSpeed.git /tmp/DeepSpeed
+#RUN cd /tmp/DeepSpeed && DS_BUILD_OPS=1 ./install.sh -r
 
 # CompVis taming-transformers
-RUN git clone https://github.com/CompVis/taming-transformers.git /tmp/taming
-RUN cd /tmp/taming && pip install . --editable
+#RUN git clone https://github.com/CompVis/taming-transformers.git /tmp/taming
+#RUN cd /tmp/taming && pip install . --editable
 
 WORKDIR dalle
