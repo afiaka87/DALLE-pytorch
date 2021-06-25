@@ -36,7 +36,7 @@ setup(
     'deepspeed',
     'youtokentome',
     'yapf',
-    'WebDataset'
+    'WebDataset',
     'Ninja'
   ],
   classifiers=[
