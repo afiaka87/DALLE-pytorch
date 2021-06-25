@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 setup(
-  name = 'dalle-pytorch-afiaka',
+  name = 'dalle-pytorch',
   packages = find_packages(),
   include_package_data = True,
   version = '0.0.1',
@@ -18,6 +18,7 @@ setup(
   ],
   install_requires=[
     'axial_positional_embedding',
+    'Cython',
     'DALL-E',
     'einops>=0.3',
     'ftfy',
@@ -26,18 +27,11 @@ setup(
     'regex',
     'taming-transformers',
     'tokenizers',
-    'torch>=1.7',
-    'torchvision',
     'transformers',
     'tqdm',
-    'wandb',
-    'wheel',
-    'Cython',
-    'deepspeed',
     'youtokentome',
     'yapf',
-    'WebDataset',
-    'Ninja'
+    'Ninja',
   ],
   classifiers=[
     'Development Status :: 4 - Alpha',
