@@ -45,12 +45,10 @@ parser.add_argument('--vqgan_config_path', type=str, default = None,
 parser.add_argument('--image_text_folder', type=str, required=True,
                     help='path to your folder of images and text for learning the DALL-E')
 
-parser.add_argument(
-    '--wds', 
-    type = str, 
-    default='', 
-    help = 'Comma separated list of WebDataset (1) image and (2) text column names. Must contain 2 values, e.g. img,cap.'
-)
+parser.add_argument('--wds', type = str, default='', 
+                    help = 'Comma separated list of WebDataset (1) image and (2) text column names. Must contain 2 values, e.g. img,cap.')
+
+parser.add_argument('--stable_softmax', dest='stable_softmax', action='store_true', help='Prevent values from becoming too large during softmax. Helps with stability in fp16 and Mixture of Quantization training.')
 
 parser.add_argument('--truncate_captions', dest='truncate_captions', action='store_true',
                     help='Captions passed in which exceed the max token length will be truncated if this is set.')
@@ -60,7 +58,11 @@ parser.add_argument('--random_resize_crop_lower_ratio', dest='resize_ratio', typ
 
 parser.add_argument('--chinese', dest='chinese', action='store_true')
 
-parser.add_argument('--taming', dest='taming', action='store_true')
+parser.add_argument('--taming', dest='taming', action='store_true',
+        help='Train with CompVis VQGAN instead of dVaE. Defaults to 1024 ImageNet model.')
+
+parser.add_argument('--gumbel', dest='gumbel', action='store_true',
+        help='Train with OpenImages (f=8), 8192, GumbelQuantization VQGAN')
 
 parser.add_argument('--hug', dest='hug', action='store_true')
 
@@ -80,6 +82,8 @@ parser.add_argument('--amp', action='store_true',
 parser.add_argument('--wandb_name', default='dalle_train_transformer',
                     help='Name W&B will use when saving results.\ne.g. `--wandb_name "coco2017-full-sparse"`')
 
+parser.add_argument('--wandb_entity', default=None,
+                    help='(optional) Name of W&B team/entity to log to.')
 parser = distributed_utils.wrap_arg_parser(parser)
 
 train_group = parser.add_argument_group('Training settings')
@@ -176,6 +180,7 @@ REVERSIBLE = args.reversible
 LOSS_IMG_WEIGHT = args.loss_img_weight
 FF_DROPOUT = args.ff_dropout
 ATTN_DROPOUT = args.attn_dropout
+STABLE = args.stable_softmax
 
 ATTN_TYPES = tuple(args.attn_types.split(','))
 
@@ -237,8 +242,8 @@ if RESUME:
     if vae_params is not None:
         vae = DiscreteVAE(**vae_params)
     else:
-        if args.taming:
-            vae = VQGanVAE(VQGAN_MODEL_PATH, VQGAN_CONFIG_PATH)
+        if args.taming or args.gumbel:
+            vae = VQGanVAE(VQGAN_MODEL_PATH, VQGAN_CONFIG_PATH, is_gumbel=args.gumbel)
         else:
             vae = OpenAIDiscreteVAE()
 
@@ -287,6 +292,7 @@ else:
         attn_types=ATTN_TYPES,
         ff_dropout=FF_DROPOUT,
         attn_dropout=ATTN_DROPOUT,
+        stable=STABLE,
     )
     resume_epoch = 0
 
@@ -437,10 +443,10 @@ if distr_backend.is_root_worker():
         project=args.wandb_name,  # 'dalle_train_transformer' by default
         resume=False,
         config=model_config,
+        entity=args.wandb_entity,
     )
 
 # distribute
-
 distr_backend.check_batch_size(BATCH_SIZE)
 deepspeed_config = {
     'train_batch_size': BATCH_SIZE,
@@ -451,7 +457,6 @@ deepspeed_config = {
     },
     'amp': {
         'enabled': args.amp,
-        'opt_level': 'O1',
     },
     "flops_profiler": {
         "enabled": args.flops_profiler,
