@@ -2,6 +2,7 @@ from math import log2, sqrt
 import torch
 from torch import nn, einsum
 import torch.nn.functional as F
+from torch.autocast_mode import autocast
 
 from axial_positional_embedding import AxialPositionalEmbedding
 from einops import rearrange
@@ -440,6 +441,7 @@ class DALLE(nn.Module):
 
         return images
 
+    @autocast(device_type="cuda", enabled=True)
     def forward(
         self,
         text,
