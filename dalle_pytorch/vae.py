@@ -13,6 +13,7 @@ from tqdm import tqdm
 from math import sqrt
 from omegaconf import OmegaConf
 from taming.models.vqgan import VQModel
+from torch.autocast_mode import autocast
 
 import torch
 from torch import nn
@@ -167,6 +168,7 @@ class VQGanVAE1024(nn.Module):
             self, self.model.quantize.embedding.weight)
 
     @torch.no_grad()
+    @autocast(device_type="cuda", enabled=False) # VQGAN is only stable in 32-bit
     def get_codebook_indices(self, img):
         b = img.shape[0]
         img = (2 * img) - 1
